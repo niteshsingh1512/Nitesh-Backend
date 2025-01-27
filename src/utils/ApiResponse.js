@@ -9,6 +9,7 @@ class ApiResponse{
     }
 }
 
+export {ApiResponse}
 // Informational responses - 100-199
 // Succesfful response - 200-299
 // Redirectional response - 300-399
