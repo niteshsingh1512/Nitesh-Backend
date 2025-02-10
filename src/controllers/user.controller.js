@@ -156,17 +156,17 @@ const logoutUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, {}, "User logged Out"));
 });
 
-const refreshAccessToken = asyncHandler(async (re, res) => {
-  const incomingRefreshtoken =
+const refreshAccessToken = asyncHandler(async (req, res) => {
+  const incomingRefreshToken =
     req.cookies.refreshToken || req.body.refreshToken;
 
-  if (!incomingRefreshtoken) {
+  if (!incomingRefreshToken) {
     throw new ApiError(401, "Unauthorized request");
   }
 
   try {
     const decodedToken = jwt.verify(
-      incomingRefreshtoken,
+      incomingRefreshToken,
       process.env.ACCESS_REFRESH_SECRET
     );
     const user = await User.findById(decodedToken?._id);
@@ -175,7 +175,7 @@ const refreshAccessToken = asyncHandler(async (re, res) => {
       throw new ApiError(401, "Invalid refresh token");
     }
 
-    if (incomingRefreshtoken !== user?.refreshToken) {
+    if (incomingRefreshToken !== user?.refreshToken) {
       throw new ApiError(401, "Refresh token is expired or used");
     }
 
@@ -185,16 +185,22 @@ const refreshAccessToken = asyncHandler(async (re, res) => {
     };
 
     const { accessToken, newRefreshToken } =
-      await generateAccessAndRefreshTokens(user._id);
+      await generateAccessAndRefreshTokens(
+        user._id,
+        process.env.ACCESS_TOKEN_SECRET,
+        process.env.ACCESS_TOKEN_EXPIRY,
+        process.env.ACCESS_REFRESH_SECRET,
+        process.env.ACCESS_REFRESH_EXPIRY
+      );
 
     return res
       .status(200)
-      .Cookies("accessToken", accessToken, options)
-      .Cookies("newRefreshToken", newRefreshToken, options)
+      .cookie("accessToken", accessToken, options)
+      .cookie("refreshToken", newRefreshToken, options)
       .json(
         new ApiResponse(
           200,
-          { accessToken, newRefreshToken: newRefreshToken },
+          { accessToken, newRefreshToken },
           "Access token refreshed"
         )
       );
@@ -207,13 +213,24 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
   const { oldPassword, newPassword } = req.body;
 
   const user = await User.findById(req.user?._id);
-  const isPasswordCorrect = await user.isPasswordCorrect(oldPassword);
 
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  const isPasswordCorrect = await user.isPasswordCorrect(oldPassword);
   if (!isPasswordCorrect) {
     throw new ApiError(400, "Invalid Password");
   }
 
-  user.password = newPassword;
+  if (oldPassword === newPassword) {
+    throw new ApiError(
+      400,
+      "New password cannot be the same as the old password"
+    );
+  }
+
+  user.password = await bcrypt.hash(newPassword, 10);
   await user.save({ validateBeforeSave: false });
 
   return res
@@ -221,10 +238,10 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, {}, "Password changed successfully"));
 });
 
-const getCurrentuser = await asyncHandler(async (req, res) => {
+const getCurrentUser = asyncHandler(async (req, res) => {
   return res
     .status(200)
-    .json(200, req.user, "Current user fetched successfully");
+    .json(new ApiResponse(200, req.user, "Current user fetched successfully"));
 });
 
 const updateAccountDetails = asyncHandler(async (req, res) => {
@@ -434,20 +451,25 @@ const getWatchHistory = asyncHandler(async (req, res) => {
             },
           },
           {
-            $addFields:{
-              owner:{
-                $first:"$owner"
-              }
-            }
-          }
+            $addFields: {
+              owner: {
+                $first: "$owner",
+              },
+            },
+          },
         ],
-      }
-    }
-  ])
+      },
+    },
+  ]);
   return res
-  .status(200)
-  .json(new ApiResponse(200,user[0].watchHistory,"Watch history fetched successfully")
-)
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        user[0].watchHistory,
+        "Watch history fetched successfully"
+      )
+    );
 });
 
 export {
@@ -456,10 +478,10 @@ export {
   logoutUser,
   refreshAccessToken,
   changeCurrentPassword,
-  getCurrentuser,
+  getCurrentUser,
   updateAccountDetails,
   updateUserAvatar,
   updateUserCoverImage,
   getUserChannelProfile,
-  getWatchHistory
+  getWatchHistory,
 };
